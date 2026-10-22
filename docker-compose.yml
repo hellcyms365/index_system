@@ -1,0 +1,38 @@
+# 上网入口 - Docker 编排（可选部署方式）
+# 用法：docker compose up -d --build  然后访问 http://服务器IP:8080/install.php
+services:
+  db:
+    # 使用国内镜像源前缀（2026-10 实测可用）。
+    # 如需改回 Docker Hub 官方源或你自己的加速器，改回：image: mysql:8.0
+    image: docker.1panel.live/library/mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: net_portal
+      MYSQL_USER: portal
+      MYSQL_PASSWORD: portalpass
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpass"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: net_portal
+      DB_USER: portal
+      DB_PASS: portalpass
+    ports:
+      - "8080:80"
+
+volumes:
+  mysql_data:
