@@ -31,5 +31,15 @@ $ua = str_cut((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 255);
 db()->prepare('INSERT INTO click_logs (link_id, ip, user_agent) VALUES (?, ?, ?)')
     ->execute([$link['id'], get_ip(), $ua]);
 
+// 按天聚合计数（click_daily）：老库未升级建表时跳过，不影响跳转
+try {
+    db()->prepare(
+        'INSERT INTO click_daily (link_id, click_date, count) VALUES (?, CURDATE(), 1)
+         ON DUPLICATE KEY UPDATE count = count + 1'
+    )->execute([$link['id']]);
+} catch (Throwable $e) {
+    // 聚合表缺失或写入失败时静默，仅明细记录可用
+}
+
 header('Location: ' . $url);
 exit;

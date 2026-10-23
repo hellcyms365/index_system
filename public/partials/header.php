@@ -55,8 +55,14 @@ body.bg-image { background-attachment: <?= $bgFixed ? 'fixed' : 'scroll' ?>; }
 <header class="site-header">
   <div class="container header-inner">
     <a class="logo" href="index.php"><span class="logo-icon">🌐</span><?= e(site_name()) ?></a>
-    <form class="search-form" action="search.php" method="get" role="search">
-      <input type="search" name="q" placeholder="搜索网站、描述…" value="<?= e($_GET['q'] ?? '') ?>" autocomplete="off">
+    <form class="search-form" action="search.php" method="get" role="search" data-engine-form>
+      <select name="engine" class="search-engine" aria-label="搜索方式">
+        <option value="site" <?= ((string)($_GET['engine'] ?? 'site') === 'site') ? 'selected' : '' ?>>站内</option>
+        <option value="baidu" <?= ((string)($_GET['engine'] ?? '') === 'baidu') ? 'selected' : '' ?>>百度</option>
+        <option value="google" <?= ((string)($_GET['engine'] ?? '') === 'google') ? 'selected' : '' ?>>Google</option>
+        <option value="bing" <?= ((string)($_GET['engine'] ?? '') === 'bing') ? 'selected' : '' ?>>Bing</option>
+      </select>
+      <input type="search" name="q" placeholder="站内 / 百度 / Google / Bing 搜索" value="<?= e($_GET['q'] ?? '') ?>" autocomplete="off">
       <button type="submit">搜索</button>
     </form>
     <nav class="user-nav">

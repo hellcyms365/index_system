@@ -24,7 +24,7 @@ if ($q !== '') {
                 FROM links l
                 JOIN categories c ON c.id = l.category_id
                 WHERE l.status = 1 AND ' . implode(' AND ', $conditions) . '
-                ORDER BY l.sort_order ASC, l.id ASC';
+                ORDER BY l.is_pinned DESC, l.sort_order ASC, l.id ASC';
         $stmt   = db()->prepare($sql);
         $stmt->execute($params);
         $results = $stmt->fetchAll();
@@ -39,6 +39,15 @@ include __DIR__ . '/partials/header.php';
   <h1 class="page-title">
     <?= $q !== '' ? '「' . e($q) . '」的搜索结果' : '站内搜索' ?>
   </h1>
+
+  <?php if ($q !== ''): ?>
+    <p class="engine-jump">
+      外部搜索：
+      <a href="https://www.baidu.com/s?wd=<?= rawurlencode($q) ?>" target="_blank" rel="noopener">百度</a> ·
+      <a href="https://www.google.com/search?q=<?= rawurlencode($q) ?>" target="_blank" rel="noopener">Google</a> ·
+      <a href="https://www.bing.com/search?q=<?= rawurlencode($q) ?>" target="_blank" rel="noopener">Bing</a>
+    </p>
+  <?php endif; ?>
 
   <?php if ($q === ''): ?>
     <div class="empty-state">

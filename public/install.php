@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS links (
     description VARCHAR(500) NOT NULL DEFAULT '',
     icon VARCHAR(255) NOT NULL DEFAULT '',
     sort_order INT NOT NULL DEFAULT 0,
+    is_pinned TINYINT NOT NULL DEFAULT 0,
     status TINYINT NOT NULL DEFAULT 1,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_category (category_id),
@@ -62,6 +63,16 @@ CREATE TABLE IF NOT EXISTS click_logs (
     KEY idx_link (link_id),
     KEY idx_date (created_at),
     CONSTRAINT fk_clicks_link FOREIGN KEY (link_id) REFERENCES links(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL,
+    'click_daily' => <<<'SQL'
+CREATE TABLE IF NOT EXISTS click_daily (
+    link_id INT UNSIGNED NOT NULL,
+    click_date DATE NOT NULL,
+    count INT UNSIGNED NOT NULL DEFAULT 0,
+    PRIMARY KEY (link_id, click_date),
+    KEY idx_date (click_date),
+    CONSTRAINT fk_daily_link FOREIGN KEY (link_id) REFERENCES links(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 SQL,
     'settings' => <<<'SQL'
@@ -205,7 +216,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ],
                 ];
                 $insertLink = $pdo->prepare(
-                    'INSERT INTO links (category_id, title, url, description, icon, sort_order, status) VALUES (?, ?, ?, ?, ?, ?, 1)'
+                    'INSERT INTO links (category_id, title, url, description, icon, sort_order, is_pinned, status) VALUES (?, ?, ?, ?, ?, ?, 0, 1)'
                 );
                 foreach ($sampleLinks as $catName => $links) {
                     if (!isset($categoryIds[$catName])) {

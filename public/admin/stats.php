@@ -6,19 +6,20 @@ require_once __DIR__ . '/../../app/init.php';
 require_admin();
 
 $db = db();
+ensure_click_daily_table();
 
-// 汇总指标
-$todayClicks   = (int)$db->query('SELECT COUNT(*) FROM click_logs WHERE created_at >= CURDATE()')->fetchColumn();
-$weekClicks    = (int)$db->query('SELECT COUNT(*) FROM click_logs WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)')->fetchColumn();
-$totalClicks   = (int)$db->query('SELECT COUNT(*) FROM click_logs')->fetchColumn();
-$uniqueIps     = (int)$db->query('SELECT COUNT(DISTINCT ip) FROM click_logs WHERE ip <> \'\'')->fetchColumn();
+// 汇总指标（聚合表；独立访客 IP 仍需明细表去重）
+$todayClicks = (int)$db->query('SELECT COALESCE(SUM(count), 0) FROM click_daily WHERE click_date >= CURDATE()')->fetchColumn();
+$weekClicks  = (int)$db->query('SELECT COALESCE(SUM(count), 0) FROM click_daily WHERE click_date >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)')->fetchColumn();
+$totalClicks = (int)$db->query('SELECT COALESCE(SUM(count), 0) FROM click_daily')->fetchColumn();
+$uniqueIps   = (int)$db->query('SELECT COUNT(DISTINCT ip) FROM click_logs WHERE ip <> \'\'')->fetchColumn();
 
-// 近 30 日趋势
+// 近 30 日趋势（聚合表）
 $trendRows = $db->query(
-    'SELECT DATE(created_at) AS d, COUNT(*) AS c
-     FROM click_logs
-     WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)
-     GROUP BY DATE(created_at)'
+    'SELECT click_date AS d, SUM(count) AS c
+     FROM click_daily
+     WHERE click_date >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)
+     GROUP BY click_date'
 )->fetchAll();
 $trend = [];
 for ($i = 29; $i >= 0; $i--) {
@@ -30,11 +31,11 @@ foreach ($trendRows as $row) {
 }
 $trendMax = max($trend) > 0 ? max($trend) : 1;
 
-// 分类点击分布
+// 分类点击分布（聚合表）
 $catStats = $db->query(
-    'SELECT c.name, COUNT(cl.id) AS c
-     FROM click_logs cl
-     JOIN links l ON l.id = cl.link_id
+    'SELECT c.name, COALESCE(SUM(cd.count), 0) AS c
+     FROM click_daily cd
+     JOIN links l ON l.id = cd.link_id
      JOIN categories c ON c.id = l.category_id
      GROUP BY c.id
      ORDER BY c DESC'
@@ -42,17 +43,17 @@ $catStats = $db->query(
 $catTotal = array_sum(array_column($catStats, 'c'));
 $catMax   = $catTotal > 0 ? $catTotal : 1;
 
-// 点击排行 TOP 20
+// 点击排行 TOP 20（聚合表）
 $topLinks = $db->query(
-    'SELECT l.title, l.url, COUNT(cl.id) AS c
+    'SELECT l.title, l.url, COALESCE(SUM(cd.count), 0) AS c
      FROM links l
-     LEFT JOIN click_logs cl ON cl.link_id = l.id
+     LEFT JOIN click_daily cd ON cd.link_id = l.id
      GROUP BY l.id
      ORDER BY c DESC, l.id ASC
      LIMIT 20'
 )->fetchAll();
 
-// 最近 50 条点击
+// 最近 50 条点击（明细表，仅取最近数据）
 $recentClicks = $db->query(
     'SELECT cl.id, cl.ip, cl.created_at, l.title
      FROM click_logs cl

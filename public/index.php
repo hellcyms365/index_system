@@ -19,7 +19,7 @@ if ($categories) {
         "SELECT id, category_id, title, url, description, icon
          FROM links
          WHERE status = 1 AND category_id IN ($placeholders)
-         ORDER BY sort_order ASC, id ASC"
+         ORDER BY is_pinned DESC, sort_order ASC, id ASC"
     );
     $stmt->execute($ids);
     foreach ($stmt->fetchAll() as $link) {

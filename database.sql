@@ -43,13 +43,14 @@ CREATE TABLE IF NOT EXISTS `links` (
   `description` VARCHAR(500) NOT NULL DEFAULT '',
   `icon` VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'emoji 或图标图片地址',
   `sort_order` INT NOT NULL DEFAULT 0,
+  `is_pinned` TINYINT NOT NULL DEFAULT 0 COMMENT '1=置顶 0=正常',
   `status` TINYINT NOT NULL DEFAULT 1 COMMENT '1=启用 0=停用',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY `idx_category` (`category_id`),
   CONSTRAINT `fk_links_category` FOREIGN KEY (`category_id`) REFERENCES `categories`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ---------------- 点击统计表 ----------------
+-- ---------------- 点击统计表（明细） ----------------
 CREATE TABLE IF NOT EXISTS `click_logs` (
   `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   `link_id` INT UNSIGNED NOT NULL,
@@ -59,6 +60,16 @@ CREATE TABLE IF NOT EXISTS `click_logs` (
   KEY `idx_link` (`link_id`),
   KEY `idx_date` (`created_at`),
   CONSTRAINT `fk_clicks_link` FOREIGN KEY (`link_id`) REFERENCES `links`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------- 点击统计表（按天聚合，大数据量性能） ----------------
+CREATE TABLE IF NOT EXISTS `click_daily` (
+  `link_id` INT UNSIGNED NOT NULL,
+  `click_date` DATE NOT NULL,
+  `count` INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (`link_id`, `click_date`),
+  KEY `idx_date` (`click_date`),
+  CONSTRAINT `fk_daily_link` FOREIGN KEY (`link_id`) REFERENCES `links`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------- 站点设置表（外观等 key-value） ----------------
@@ -97,23 +108,23 @@ INSERT INTO `categories` (`name`, `sort_order`, `status`) VALUES
 ('影音娱乐', 4, 1);
 
 -- 示例链接
-INSERT INTO `links` (`category_id`, `title`, `url`, `description`, `icon`, `sort_order`, `status`) VALUES
-(1, '百度搜索', 'https://www.baidu.com', '综合搜索', '🔍', 1, 1),
-(1, 'Google', 'https://www.google.com', '全球搜索', '🌐', 2, 1),
-(1, 'Bing', 'https://www.bing.com', '微软搜索', '🪟', 3, 1),
-(1, '百度网盘', 'https://pan.baidu.com', '云盘存储', '📦', 4, 1),
-(1, '有道翻译', 'https://fanyi.youdao.com', '在线翻译', '📖', 5, 1),
-(2, 'GitHub', 'https://github.com', '代码托管与开源社区', '🐙', 1, 1),
-(2, 'Gitee 码云', 'https://gitee.com', '国内代码托管', '🐴', 2, 1),
-(2, '掘金', 'https://juejin.cn', '技术文章社区', '⛏️', 3, 1),
-(2, '菜鸟教程', 'https://www.runoob.com', '编程入门教程', '🐦', 4, 1),
-(2, 'MDN Web Docs', 'https://developer.mozilla.org', 'Web 开发文档', '📚', 5, 1),
-(3, '知乎', 'https://www.zhihu.com', '问答与社区', '💡', 1, 1),
-(3, '微博', 'https://weibo.com', '社交媒体', '📣', 2, 1),
-(3, '36氪', 'https://36kr.com', '科技与创投资讯', '⚡', 3, 1),
-(3, '少数派', 'https://sspai.com', '效率与生活方式', '🎯', 4, 1),
-(3, '澎湃新闻', 'https://www.thepaper.cn', '时事新闻', '📰', 5, 1),
-(4, '哔哩哔哩', 'https://www.bilibili.com', '视频弹幕网站', '📺', 1, 1),
-(4, '腾讯视频', 'https://v.qq.com', '在线影视', '🎬', 2, 1),
-(4, '网易云音乐', 'https://music.163.com', '在线音乐', '🎵', 3, 1),
-(4, '抖音', 'https://www.douyin.com', '短视频', '📱', 4, 1);
+INSERT INTO `links` (`category_id`, `title`, `url`, `description`, `icon`, `sort_order`, `is_pinned`, `status`) VALUES
+(1, '百度搜索', 'https://www.baidu.com', '综合搜索', '🔍', 1, 0, 1),
+(1, 'Google', 'https://www.google.com', '全球搜索', '🌐', 2, 0, 1),
+(1, 'Bing', 'https://www.bing.com', '微软搜索', '🪟', 3, 0, 1),
+(1, '百度网盘', 'https://pan.baidu.com', '云盘存储', '📦', 4, 0, 1),
+(1, '有道翻译', 'https://fanyi.youdao.com', '在线翻译', '📖', 5, 0, 1),
+(2, 'GitHub', 'https://github.com', '代码托管与开源社区', '🐙', 1, 0, 1),
+(2, 'Gitee 码云', 'https://gitee.com', '国内代码托管', '🐴', 2, 0, 1),
+(2, '掘金', 'https://juejin.cn', '技术文章社区', '⛏️', 3, 0, 1),
+(2, '菜鸟教程', 'https://www.runoob.com', '编程入门教程', '🐦', 4, 0, 1),
+(2, 'MDN Web Docs', 'https://developer.mozilla.org', 'Web 开发文档', '📚', 5, 0, 1),
+(3, '知乎', 'https://www.zhihu.com', '问答与社区', '💡', 1, 0, 1),
+(3, '微博', 'https://weibo.com', '社交媒体', '📣', 2, 0, 1),
+(3, '36氪', 'https://36kr.com', '科技与创投资讯', '⚡', 3, 0, 1),
+(3, '少数派', 'https://sspai.com', '效率与生活方式', '🎯', 4, 0, 1),
+(3, '澎湃新闻', 'https://www.thepaper.cn', '时事新闻', '📰', 5, 0, 1),
+(4, '哔哩哔哩', 'https://www.bilibili.com', '视频弹幕网站', '📺', 1, 0, 1),
+(4, '腾讯视频', 'https://v.qq.com', '在线影视', '🎬', 2, 0, 1),
+(4, '网易云音乐', 'https://music.163.com', '在线音乐', '🎵', 3, 0, 1),
+(4, '抖音', 'https://www.douyin.com', '短视频', '📱', 4, 0, 1);

@@ -250,3 +250,185 @@ return [
 ];
 PHP;
 }
+
+/** 确保 links.is_pinned 列存在（老库自动升级，无则 ALTER 添加） */
+function ensure_links_pinned(): void
+{
+    try {
+        $db = db();
+        $row = $db->query(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'links' AND COLUMN_NAME = 'is_pinned'"
+        )->fetch();
+        if ($row === false) {
+            $db->exec('ALTER TABLE `links` ADD COLUMN `is_pinned` TINYINT NOT NULL DEFAULT 0 AFTER `sort_order`');
+        }
+    } catch (Throwable $e) {
+        // 静默：权限或结构异常时不阻塞页面
+    }
+}
+
+/**
+ * 确保 click_daily 按天聚合表存在（老库自动升级）。
+ * 首次创建时从 click_logs 一次性回填历史数据（INSERT IGNORE，重复执行不会累加）。
+ */
+function ensure_click_daily_table(): void
+{
+    $db = db();
+    $exists = false;
+    try {
+        $count = $db->query(
+            "SELECT COUNT(*) FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'click_daily'"
+        )->fetchColumn();
+        $exists = (int)$count > 0;
+    } catch (Throwable $e) {
+        $exists = true; // 无法探测时按已存在处理，避免每次请求都尝试建表
+    }
+    if (!$exists) {
+        try {
+            $db->exec(
+                'CREATE TABLE IF NOT EXISTS `click_daily` (
+                    `link_id` INT UNSIGNED NOT NULL,
+                    `click_date` DATE NOT NULL,
+                    `count` INT UNSIGNED NOT NULL DEFAULT 0,
+                    PRIMARY KEY (`link_id`, `click_date`),
+                    KEY `idx_date` (`click_date`),
+                    CONSTRAINT `fk_daily_link` FOREIGN KEY (`link_id`) REFERENCES `links`(`id`) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+        } catch (Throwable $e) {
+            // 建表失败不阻塞统计页
+            return;
+        }
+        try {
+            $db->exec(
+                'INSERT IGNORE INTO `click_daily` (`link_id`, `click_date`, `count`)
+                 SELECT `link_id`, DATE(`created_at`), COUNT(*) FROM `click_logs`
+                 GROUP BY `link_id`, DATE(`created_at`)'
+            );
+        } catch (Throwable $e) {
+            // 回填失败不影响后续增量
+        }
+    }
+}
+
+/** 受限 HTTP GET：限流限大小（抓 favicon 等用），返回字符串，失败返回空串 */
+function http_get_limited(string $url, int $maxBytes = 262144, int $timeoutSec = 5): string
+{
+    if (!in_array(strtolower((string)parse_url($url, PHP_URL_SCHEME)), ['http', 'https'], true)) {
+        return '';
+    }
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS      => 3,
+            CURLOPT_CONNECTTIMEOUT => $timeoutSec,
+            CURLOPT_TIMEOUT        => $timeoutSec,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 (compatible; NetPortal/1.0)',
+            CURLOPT_BUFFERSIZE     => 16384,
+        ]);
+        $data = curl_exec($ch);
+        curl_close($ch);
+        return is_string($data) ? substr($data, 0, $maxBytes) : '';
+    }
+    $ctx = stream_context_create([
+        'http' => [
+            'timeout'        => $timeoutSec,
+            'follow_location' => 1,
+            'max_redirects'  => 3,
+            'user_agent'     => 'Mozilla/5.0 (compatible; NetPortal/1.0)',
+            'ignore_errors'  => true,
+        ],
+        'ssl' => ['verify_peer' => false, 'verify_peer_name' => false],
+    ]);
+    $data = @file_get_contents($url, false, $ctx);
+    return is_string($data) ? substr($data, 0, $maxBytes) : '';
+}
+
+/** 把相对路径解析为基于站点域名的绝对地址 */
+function resolve_url(string $path, string $base): string
+{
+    if (preg_match('#^https?://#i', $path)) {
+        return $path;
+    }
+    $parts = parse_url($base);
+    $scheme = (string)($parts['scheme'] ?? 'http');
+    $host   = (string)($parts['host'] ?? '');
+    if ($host === '' || $path === '') {
+        return '';
+    }
+    if ($path[0] === '/') {
+        return $scheme . '://' . $host . $path;
+    }
+    $dir = dirname((string)($parts['path'] ?? '/'));
+    $dir = str_replace('\\', '/', $dir);
+    return $scheme . '://' . $host . ($dir === '/' ? '/' : rtrim($dir, '/') . '/') . $path;
+}
+
+/** 识别 favicon 图片类型（ICO/PNG/GIF/JPEG/WebP），无法识别返回 null */
+function detect_favicon_type(string $data): ?string
+{
+    $head = substr($data, 0, 16);
+    if (substr($head, 0, 4) === "\x00\x00\x01\x00") {
+        return 'ico'; // ICO 文件头
+    }
+    if (substr($head, 0, 4) === "\x89PNG") {
+        return 'png';
+    }
+    if (function_exists('getimagesize')) {
+        $tmp = tempnam(sys_get_temp_dir(), 'ico');
+        if ($tmp === false) {
+            return null;
+        }
+        file_put_contents($tmp, $data);
+        $info = @getimagesize($tmp);
+        @unlink($tmp);
+        if (is_array($info)) {
+            $map = [IMAGETYPE_GIF => 'gif', IMAGETYPE_JPEG => 'jpg', IMAGETYPE_WEBP => 'webp'];
+            return $map[$info[2] ?? 0] ?? null;
+        }
+    }
+    return null;
+}
+
+/**
+ * 抓取站点 favicon：优先解析首页 <link rel="icon">，兜底 /favicon.ico。
+ * 返回 [二进制数据, 扩展名]，失败返回 [null, 错误说明]。
+ */
+function fetch_favicon(string $scheme, string $host): array
+{
+    $candidates = [];
+    $html = http_get_limited(($scheme === 'https' ? 'https' : 'http') . '://' . $host . '/', 524288, 5);
+    if ($html !== '' && preg_match_all('#<link[^>]+rel=["\'][^"\']*icon[^"\']*["\'][^>]*>#i', $html, $m)) {
+        foreach ($m[0] as $tag) {
+            if (preg_match('#href=["\']([^"\']+)["\']#i', $tag, $hm)) {
+                $href = trim($hm[1]);
+                if ($href !== '') {
+                    $candidates[] = $href;
+                }
+            }
+        }
+    }
+    $candidates[] = '/favicon.ico';
+    $base = $scheme . '://' . $host;
+    foreach ($candidates as $path) {
+        $abs = resolve_url($path, $base);
+        if ($abs === '') {
+            continue;
+        }
+        $data = http_get_limited($abs, 262144, 5);
+        if ($data === '') {
+            continue;
+        }
+        $ext = detect_favicon_type($data);
+        if ($ext !== null) {
+            return [$data, $ext];
+        }
+    }
+    return [null, '站点未提供可识别的图标（可能屏蔽了抓取）'];
+}

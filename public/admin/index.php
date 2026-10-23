@@ -6,22 +6,23 @@ require_once __DIR__ . '/../../app/init.php';
 require_admin();
 
 $db = db();
+ensure_click_daily_table();
 
 // 基础计数
 $linkCount   = (int)$db->query('SELECT COUNT(*) FROM links')->fetchColumn();
 $catCount    = (int)$db->query('SELECT COUNT(*) FROM categories')->fetchColumn();
 $userCount   = (int)$db->query('SELECT COUNT(*) FROM users')->fetchColumn();
-$totalClicks = (int)$db->query('SELECT COUNT(*) FROM click_logs')->fetchColumn();
+$totalClicks = (int)$db->query('SELECT COALESCE(SUM(count), 0) FROM click_daily')->fetchColumn();
 $todayClicks = (int)$db->query(
-    'SELECT COUNT(*) FROM click_logs WHERE created_at >= CURDATE()'
+    'SELECT COALESCE(SUM(count), 0) FROM click_daily WHERE click_date >= CURDATE()'
 )->fetchColumn();
 
-// 近 7 日点击趋势（补齐没有点击的日期）
+// 近 7 日点击趋势（聚合表，避免大数据量下全表扫描；补齐没有点击的日期）
 $trendRows = $db->query(
-    'SELECT DATE(created_at) AS d, COUNT(*) AS c
-     FROM click_logs
-     WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
-     GROUP BY DATE(created_at)'
+    'SELECT click_date AS d, SUM(count) AS c
+     FROM click_daily
+     WHERE click_date >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+     GROUP BY click_date'
 )->fetchAll();
 $trend = [];
 for ($i = 6; $i >= 0; $i--) {
@@ -33,11 +34,11 @@ foreach ($trendRows as $row) {
 }
 $trendMax = max($trend) > 0 ? max($trend) : 1;
 
-// 点击排行 TOP 10
+// 点击排行 TOP 10（聚合表）
 $topLinks = $db->query(
-    'SELECT l.title, l.url, COUNT(cl.id) AS c
+    'SELECT l.title, l.url, COALESCE(SUM(cd.count), 0) AS c
      FROM links l
-     LEFT JOIN click_logs cl ON cl.link_id = l.id
+     LEFT JOIN click_daily cd ON cd.link_id = l.id
      GROUP BY l.id
      ORDER BY c DESC, l.id ASC
      LIMIT 10'
