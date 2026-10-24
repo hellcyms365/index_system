@@ -20,13 +20,16 @@ if ($q !== '') {
             $conditions[] = '(l.title LIKE ? OR l.description LIKE ? OR l.url LIKE ?)';
             array_push($params, $like, $like, $like);
         }
+        $meUid = is_logged_in() ? (int)current_user()['id'] : 0;
         $sql = 'SELECT l.id, l.title, l.url, l.description, l.icon, c.name AS category_name
                 FROM links l
                 JOIN categories c ON c.id = l.category_id
-                WHERE l.status = 1 AND ' . implode(' AND ', $conditions) . '
+                WHERE l.status = 1
+                  AND (l.user_id IS NULL OR l.user_id = ?)
+                  AND ' . implode(' AND ', $conditions) . '
                 ORDER BY l.is_pinned DESC, l.sort_order ASC, l.id ASC';
         $stmt   = db()->prepare($sql);
-        $stmt->execute($params);
+        $stmt->execute(array_merge([$meUid], $params));
         $results = $stmt->fetchAll();
     }
 }

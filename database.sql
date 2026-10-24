@@ -18,11 +18,16 @@ USE `net_portal`;
 CREATE TABLE IF NOT EXISTS `users` (
   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   `username` VARCHAR(50) NOT NULL UNIQUE,
+  `email` VARCHAR(191) NULL DEFAULT NULL,
+  `email_verified` TINYINT NOT NULL DEFAULT 0 COMMENT '1=邮箱已验证 0=未验证',
+  `phone` VARCHAR(50) NOT NULL DEFAULT '',
+  `real_name` VARCHAR(50) NOT NULL DEFAULT '',
   `password_hash` VARCHAR(255) NOT NULL,
   `role` ENUM('admin','user') NOT NULL DEFAULT 'user',
   `status` TINYINT NOT NULL DEFAULT 1 COMMENT '1=正常 0=禁用',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `last_login_at` TIMESTAMP NULL DEFAULT NULL
+  `last_login_at` TIMESTAMP NULL DEFAULT NULL,
+  UNIQUE KEY `uk_users_email` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------- 分类表 ----------------
@@ -37,6 +42,7 @@ CREATE TABLE IF NOT EXISTS `categories` (
 -- ---------------- 链接表 ----------------
 CREATE TABLE IF NOT EXISTS `links` (
   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `user_id` INT UNSIGNED NULL DEFAULT NULL COMMENT 'NULL=全局链接（管理员维护）；非NULL=该用户的个人链接',
   `category_id` INT UNSIGNED NOT NULL,
   `title` VARCHAR(150) NOT NULL,
   `url` VARCHAR(500) NOT NULL,
@@ -47,6 +53,7 @@ CREATE TABLE IF NOT EXISTS `links` (
   `status` TINYINT NOT NULL DEFAULT 1 COMMENT '1=启用 0=停用',
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY `idx_category` (`category_id`),
+  KEY `idx_user` (`user_id`),
   CONSTRAINT `fk_links_category` FOREIGN KEY (`category_id`) REFERENCES `categories`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -93,6 +100,21 @@ INSERT IGNORE INTO `settings` (`skey`, `svalue`) VALUES
 ('bg_fixed', '1'),
 ('card_opacity', '1'),
 ('footer_text', '');
+
+-- ---------------- 用户个人外观设置表（个人中心「我的外观」） ----------------
+CREATE TABLE IF NOT EXISTS `user_settings` (
+  `user_id` INT UNSIGNED NOT NULL PRIMARY KEY,
+  `accent_color` VARCHAR(20) NOT NULL DEFAULT '',
+  `bg_mode` VARCHAR(20) NOT NULL DEFAULT '',
+  `bg_color` VARCHAR(20) NOT NULL DEFAULT '',
+  `gradient_a` VARCHAR(20) NOT NULL DEFAULT '',
+  `gradient_b` VARCHAR(20) NOT NULL DEFAULT '',
+  `bg_image` VARCHAR(500) NOT NULL DEFAULT '',
+  `bg_overlay` VARCHAR(10) NOT NULL DEFAULT '',
+  `bg_fixed` VARCHAR(2) NOT NULL DEFAULT '',
+  `card_opacity` VARCHAR(10) NOT NULL DEFAULT '',
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------- 初始数据 ----------------
 

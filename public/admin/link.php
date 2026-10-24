@@ -14,6 +14,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
         'SELECT c.name AS category, l.title, l.url, l.description, l.icon, l.sort_order, l.status, l.is_pinned
          FROM links l
          JOIN categories c ON c.id = l.category_id
+         WHERE l.user_id IS NULL
          ORDER BY c.sort_order ASC, l.is_pinned DESC, l.sort_order ASC, l.id ASC'
     )->fetchAll();
 
@@ -118,13 +119,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // 更新前记录旧图标，用于清理被替换/移除的本站上传文件
             $oldIcon = '';
             if ($id > 0) {
-                $oldStmt = $db->prepare('SELECT icon FROM links WHERE id = ?');
+                $oldStmt = $db->prepare('SELECT icon FROM links WHERE id = ? AND user_id IS NULL');
                 $oldStmt->execute([$id]);
                 $oldIcon = (string)$oldStmt->fetchColumn();
             }
             $db->prepare(
                 'UPDATE links SET category_id = ?, title = ?, url = ?, description = ?, icon = ?, sort_order = ?, is_pinned = ?, status = ?
-                 WHERE id = ?'
+                 WHERE id = ? AND user_id IS NULL'
             )->execute([$categoryId, $title, $url, $description, $icon, $order, $pinned, $status, $id]);
             if (substr($oldIcon, 0, 21) === '/assets/uploads/icon_' && $oldIcon !== $icon) {
                 $oldFile = __DIR__ . '/..' . $oldIcon;
@@ -135,17 +136,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash_set('success', '链接已更新。');
         }
     } elseif ($action === 'toggle' && $id > 0) {
-        $db->prepare('UPDATE links SET status = 1 - status WHERE id = ?')->execute([$id]);
+        $db->prepare('UPDATE links SET status = 1 - status WHERE id = ? AND user_id IS NULL')->execute([$id]);
         flash_set('success', '链接状态已切换。');
     } elseif ($action === 'pin' && $id > 0) {
-        $db->prepare('UPDATE links SET is_pinned = 1 - is_pinned WHERE id = ?')->execute([$id]);
+        $db->prepare('UPDATE links SET is_pinned = 1 - is_pinned WHERE id = ? AND user_id IS NULL')->execute([$id]);
         flash_set('success', '链接置顶状态已切换。');
     } elseif ($action === 'delete' && $id > 0) {
-        $db->prepare('DELETE FROM links WHERE id = ?')->execute([$id]);
+        $db->prepare('DELETE FROM links WHERE id = ? AND user_id IS NULL')->execute([$id]);
         flash_set('success', '链接已删除（相关点击记录一并清除）。');
     } elseif ($action === 'fetch_icon' && $id > 0) {
         // ---- favicon 自动抓取：解析首页 <link rel="icon"> 或兜底 /favicon.ico ----
-        $stmt = $db->prepare('SELECT url FROM links WHERE id = ?');
+        $stmt = $db->prepare('SELECT url FROM links WHERE id = ? AND user_id IS NULL');
         $stmt->execute([$id]);
         $row = $stmt->fetch();
         if ($row === false) {
@@ -174,11 +175,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (file_put_contents($uploadDir . $iconName, $fetched[0]) === false) {
                             flash_set('error', '图标保存失败，请检查上传目录权限。');
                         } else {
-                            $oldStmt = $db->prepare('SELECT icon FROM links WHERE id = ?');
+                            $oldStmt = $db->prepare('SELECT icon FROM links WHERE id = ? AND user_id IS NULL');
                             $oldStmt->execute([$id]);
                             $oldIcon = (string)$oldStmt->fetchColumn();
                             $newIcon = '/assets/uploads/' . $iconName;
-                            $db->prepare('UPDATE links SET icon = ? WHERE id = ?')->execute([$newIcon, $id]);
+                            $db->prepare('UPDATE links SET icon = ? WHERE id = ? AND user_id IS NULL')->execute([$newIcon, $id]);
                             if (substr($oldIcon, 0, 21) === '/assets/uploads/icon_' && $oldIcon !== $newIcon) {
                                 $oldFile = __DIR__ . '/..' . $oldIcon;
                                 if (is_file($oldFile)) {
@@ -295,11 +296,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect('link.php');
 }
 
-// ---- 编辑模式：读取要编辑的链接 ----
+// ---- 编辑模式：读取要编辑的链接（仅全局链接，个人链接不在此管理）----
 $editLink = null;
 $editId   = (int)($_GET['edit'] ?? 0);
 if ($editId > 0) {
-    $stmt = $db->prepare('SELECT * FROM links WHERE id = ?');
+    $stmt = $db->prepare('SELECT * FROM links WHERE id = ? AND user_id IS NULL');
     $stmt->execute([$editId]);
     $editLink = $stmt->fetch();
     if ($editLink === false) {
@@ -307,13 +308,13 @@ if ($editId > 0) {
     }
 }
 
-// ---- 列表数据（筛选 + 分页）----
+// ---- 列表数据（筛选 + 分页，仅全局链接）----
 $catFilter = (int)($_GET['cat'] ?? 0);
 $keyword   = trim((string)($_GET['q'] ?? ''));
 $page      = max(1, (int)($_GET['page'] ?? 1));
 $perPage   = 30;
 
-$where  = ['1=1'];
+$where  = ['1=1', 'l.user_id IS NULL'];
 $params = [];
 if ($catFilter > 0) {
     $where[]  = 'l.category_id = ?';

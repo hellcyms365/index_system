@@ -10,7 +10,8 @@ $categories = db()->query(
     'SELECT id, name FROM categories WHERE status = 1 ORDER BY sort_order ASC, id ASC'
 )->fetchAll();
 
-// 一次查询拉取所有启用的链接，按分类分组
+// 一次查询拉取所有启用的链接（全局链接 + 当前登录用户的个人链接），按分类分组
+$meUid = is_logged_in() ? (int)current_user()['id'] : 0;
 $linksByCategory = [];
 if ($categories) {
     $placeholders = implode(',', array_fill(0, count($categories), '?'));
@@ -19,9 +20,11 @@ if ($categories) {
         "SELECT id, category_id, title, url, description, icon
          FROM links
          WHERE status = 1 AND category_id IN ($placeholders)
+           AND (user_id IS NULL OR user_id = ?)
          ORDER BY is_pinned DESC, sort_order ASC, id ASC"
     );
-    $stmt->execute($ids);
+    $params = array_merge($ids, [$meUid]);
+    $stmt->execute($params);
     foreach ($stmt->fetchAll() as $link) {
         $linksByCategory[$link['category_id']][] = $link;
     }

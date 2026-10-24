@@ -95,3 +95,126 @@ function site_name(): string
     $name = setting('site_name');
     return $name !== '' ? $name : (string)config('site.name');
 }
+
+/* ==================== 用户个人外观设置（user_settings 表） ====================
+ * 空值 = 未设置，自动回退到站点全局设置。仅存外观相关 9 个键。
+ */
+
+/** 确保 user_settings 表存在（老库自动升级） */
+function ensure_user_settings_table(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    try {
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS `user_settings` (
+                `user_id`      INT UNSIGNED NOT NULL PRIMARY KEY,
+                `accent_color` VARCHAR(20) NOT NULL DEFAULT \'\',
+                `bg_mode`      VARCHAR(20) NOT NULL DEFAULT \'\',
+                `bg_color`     VARCHAR(20) NOT NULL DEFAULT \'\',
+                `gradient_a`   VARCHAR(20) NOT NULL DEFAULT \'\',
+                `gradient_b`   VARCHAR(20) NOT NULL DEFAULT \'\',
+                `bg_image`     VARCHAR(500) NOT NULL DEFAULT \'\',
+                `bg_overlay`   VARCHAR(10) NOT NULL DEFAULT \'\',
+                `bg_fixed`     VARCHAR(2) NOT NULL DEFAULT \'\',
+                `card_opacity` VARCHAR(10) NOT NULL DEFAULT \'\',
+                `updated_at`   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+    } catch (Throwable $e) {
+        // 静默：无 DDL 权限时回退到全局设置
+    }
+}
+
+/** 读取某用户一行个人外观设置（不存在返回空数组） */
+function user_setting_row(int $userId): array
+{
+    ensure_user_settings_table();
+    static $cache = [];
+    if ($userId <= 0) {
+        return [];
+    }
+    if (!array_key_exists($userId, $cache)) {
+        $cache[$userId] = [];
+        try {
+            $stmt = db()->prepare('SELECT * FROM `user_settings` WHERE user_id = ? LIMIT 1');
+            $stmt->execute([$userId]);
+            $row = $stmt->fetch();
+            if ($row !== false) {
+                $cache[$userId] = $row;
+            }
+        } catch (Throwable $e) {
+            $cache[$userId] = [];
+        }
+    }
+    return $cache[$userId];
+}
+
+/** 读取某用户个人设置项（空值回退到默认值，不再回退全局——全局回退由 appearance_values 统一处理） */
+function user_setting(int $userId, string $key, string $default = ''): string
+{
+    $row = user_setting_row($userId);
+    if (isset($row[$key]) && $row[$key] !== '') {
+        return (string)$row[$key];
+    }
+    return $default !== '' ? $default : (DEFAULT_SETTINGS[$key] ?? '');
+}
+
+/**
+ * 合并最终外观值：已登录用户有个人设置则逐键覆盖全局设置。
+ * @return array 与 DEFAULT_SETTINGS 同键的外观配置
+ */
+function appearance_values(?int $userId): array
+{
+    $values = [];
+    foreach (array_keys(DEFAULT_SETTINGS) as $k) {
+        $values[$k] = setting($k);
+    }
+    if ($userId === null) {
+        return $values;
+    }
+    $row = user_setting_row($userId);
+    if (!$row) {
+        return $values;
+    }
+    foreach (['accent_color', 'bg_mode', 'bg_color', 'gradient_a', 'gradient_b', 'bg_image', 'bg_overlay', 'bg_fixed', 'card_opacity'] as $k) {
+        if (isset($row[$k]) && $row[$k] !== '') {
+            $values[$k] = (string)$row[$k];
+        }
+    }
+    return $values;
+}
+
+/** 保存某用户个人外观设置（9 个外观键；传空数组等价于恢复默认） */
+function save_user_settings(int $userId, array $values): void
+{
+    ensure_user_settings_table();
+    $keys   = ['accent_color', 'bg_mode', 'bg_color', 'gradient_a', 'gradient_b', 'bg_image', 'bg_overlay', 'bg_fixed', 'card_opacity'];
+    $data   = [];
+    foreach ($keys as $k) {
+        $data[$k] = trim((string)($values[$k] ?? ''));
+    }
+    $stmt = db()->prepare(
+        'INSERT INTO `user_settings` (user_id, accent_color, bg_mode, bg_color, gradient_a, gradient_b, bg_image, bg_overlay, bg_fixed, card_opacity)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           accent_color = VALUES(accent_color), bg_mode = VALUES(bg_mode), bg_color = VALUES(bg_color),
+           gradient_a = VALUES(gradient_a), gradient_b = VALUES(gradient_b), bg_image = VALUES(bg_image),
+           bg_overlay = VALUES(bg_overlay), bg_fixed = VALUES(bg_fixed), card_opacity = VALUES(card_opacity)'
+    );
+    $stmt->execute([$userId, $data['accent_color'], $data['bg_mode'], $data['bg_color'], $data['gradient_a'], $data['gradient_b'], $data['bg_image'], $data['bg_overlay'], $data['bg_fixed'], $data['card_opacity']]);
+}
+
+/** 清除某用户个人外观设置（恢复全局默认） */
+function clear_user_settings(int $userId): void
+{
+    ensure_user_settings_table();
+    try {
+        db()->prepare('DELETE FROM `user_settings` WHERE user_id = ?')->execute([$userId]);
+    } catch (Throwable $e) {
+        // 静默
+    }
+}

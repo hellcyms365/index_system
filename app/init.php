@@ -24,3 +24,14 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/settings.php';
+require_once __DIR__ . '/mailer.php';
+
+// ---- 老库平滑升级：自动补齐新表 / 新列（无 DDL 权限时静默降级）----
+// 放在会话与数据库就绪之后、页面业务查询之前执行，保证功能正确。
+try {
+    ensure_users_contact();
+    ensure_links_user_id();
+    ensure_user_settings_table();
+} catch (Throwable $e) {
+    // 数据库不可用时（如 install 前误访问）不阻塞页面流程
+}

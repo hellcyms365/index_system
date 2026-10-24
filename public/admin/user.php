@@ -17,19 +17,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'add') {
         $username = trim((string)($_POST['username'] ?? ''));
         $password = (string)($_POST['password'] ?? '');
+        $email    = strtolower(trim((string)($_POST['email'] ?? '')));
         if (!preg_match('/^[A-Za-z0-9_]{3,20}$/', $username)) {
             flash_set('error', '用户名需为 3-20 位字母、数字或下划线。');
         } elseif (str_length($password) < 6) {
             flash_set('error', '密码长度至少 6 位。');
+        } elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            flash_set('error', '邮箱格式不正确。');
         } else {
             $exists = $db->prepare('SELECT id FROM users WHERE username = ?');
             $exists->execute([$username]);
             if ($exists->fetch() !== false) {
                 flash_set('error', '该用户名已存在。');
+            } elseif ($email !== '') {
+                $exists = $db->prepare('SELECT id FROM users WHERE email = ?');
+                $exists->execute([$email]);
+                if ($exists->fetch() !== false) {
+                    flash_set('error', '该邮箱已被其他用户使用。');
+                } else {
+                    $db->prepare('INSERT INTO users (username, password_hash, email, role, status) VALUES (?, ?, ?, ?, 1)')
+                        ->execute([$username, password_hash($password, PASSWORD_DEFAULT), $email, 'user']);
+                    flash_set('success', '用户「' . $username . '」已创建。');
+                }
             } else {
                 $db->prepare('INSERT INTO users (username, password_hash, role, status) VALUES (?, ?, ?, 1)')
                     ->execute([$username, password_hash($password, PASSWORD_DEFAULT), 'user']);
                 flash_set('success', '用户「' . $username . '」已创建。');
+            }
+        }
+    } elseif ($action === 'edit_contact' && $id > 0) {
+        $email    = strtolower(trim((string)($_POST['email'] ?? '')));
+        $phone    = trim((string)($_POST['phone'] ?? ''));
+        $realName = trim((string)($_POST['real_name'] ?? ''));
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            flash_set('error', '邮箱格式不正确。');
+        } elseif (str_length($realName) > 50) {
+            flash_set('error', '姓名不超过 50 字。');
+        } elseif (str_length($phone) > 20) {
+            flash_set('error', '手机号不超过 20 位。');
+        } else {
+            $exists = $db->prepare('SELECT id FROM users WHERE email = ? AND id <> ?');
+            $exists->execute([$email, $id]);
+            if ($email !== '' && $exists->fetch() !== false) {
+                flash_set('error', '该邮箱已被其他用户使用。');
+            } else {
+                $db->prepare('UPDATE users SET email = ?, email_verified = 0, phone = ?, real_name = ? WHERE id = ?')
+                    ->execute([$email !== '' ? $email : null, $phone, $realName, $id]);
+                flash_set('success', '用户资料已更新。');
             }
         }
     } elseif ($action === 'reset_pass' && $id > 0) {
@@ -62,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $users = $db->query(
-    'SELECT id, username, role, status, created_at, last_login_at FROM users ORDER BY id ASC'
+    'SELECT id, username, email, email_verified, phone, real_name, role, status, created_at, last_login_at FROM users ORDER BY id ASC'
 )->fetchAll();
 
 $pageTitle = '用户管理';
@@ -79,6 +113,7 @@ include __DIR__ . '/partials/header.php';
     <input type="hidden" name="action" value="add">
     <input class="input input-sm" type="text" name="username" placeholder="用户名（3-20 位字母数字下划线）" required maxlength="20" pattern="[A-Za-z0-9_]{3,20}">
     <input class="input input-sm" type="password" name="password" placeholder="初始密码（至少 6 位）" required minlength="6">
+    <input class="input input-sm" type="email" name="email" placeholder="邮箱（选填）" maxlength="191">
     <button class="btn btn-primary btn-sm" type="submit">创建用户</button>
   </form>
 </div>
@@ -91,7 +126,7 @@ include __DIR__ . '/partials/header.php';
     <div class="table-scroll">
       <table class="table">
         <thead>
-          <tr><th>ID</th><th>用户名</th><th>角色</th><th>状态</th><th>注册时间</th><th>最后登录</th><th>操作</th></tr>
+          <tr><th>ID</th><th>用户名</th><th>联系方式</th><th>角色</th><th>状态</th><th>注册时间</th><th>最后登录</th><th>操作</th></tr>
         </thead>
         <tbody>
         <?php foreach ($users as $user): ?>
@@ -104,10 +139,21 @@ include __DIR__ . '/partials/header.php';
               <?php endif; ?>
             </td>
             <td>
-              <?php if ($user['role'] === 'admin'): ?>
-                <span class="badge badge-admin">管理员</span>
-              <?php else: ?>
-                <span class="badge">普通用户</span>
+              <form class="form-inline" method="post" action="user.php">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="edit_contact">
+                <input type="hidden" name="id" value="<?= (int)$user['id'] ?>">
+                <input class="input input-sm" type="email" name="email" value="<?= e($user['email'] ?? '') ?>" placeholder="邮箱" maxlength="191" style="width:150px">
+                <input class="input input-sm" type="text" name="phone" value="<?= e($user['phone'] ?? '') ?>" placeholder="手机" maxlength="20" style="width:100px">
+                <input class="input input-sm" type="text" name="real_name" value="<?= e($user['real_name'] ?? '') ?>" placeholder="姓名" maxlength="50" style="width:90px">
+                <button class="btn btn-outline btn-sm" type="submit">保存资料</button>
+              </form>
+              <?php if ($user['email'] !== '' && $user['email'] !== null): ?>
+                <?php if ((int)($user['email_verified'] ?? 0) === 1): ?>
+                  <span class="badge badge-on">邮箱已验证</span>
+                <?php else: ?>
+                  <span class="badge badge-off">邮箱未验证</span>
+                <?php endif; ?>
               <?php endif; ?>
             </td>
             <td>

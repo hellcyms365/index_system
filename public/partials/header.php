@@ -9,16 +9,17 @@ if (!isset($pageTitle)) {
 }
 $currentUser = current_user();
 
-// ---- 外观设置 ----
-$accent    = sanitize_css_color(setting('accent_color'));
-$bgMode    = setting('bg_mode', 'default');
-$bgImage   = trim(setting('bg_image'));
-$bgColor   = sanitize_css_color(setting('bg_color'), '#f3f5f9');
-$gradA     = sanitize_css_color(setting('gradient_a'), '#60a5fa');
-$gradB     = sanitize_css_color(setting('gradient_b'), '#8b5cf6');
-$bgOverlay = max(0.0, min(0.85, (float)setting('bg_overlay', '0.35')));
-$bgFixed   = setting('bg_fixed', '1') === '1';
-$cardAlpha = max(0.35, min(1.0, (float)setting('card_opacity', '1')));
+// ---- 外观设置（已登录用户优先使用自己的主题/背景，未设置则用站点全局）----
+$ap        = appearance_values($currentUser ? (int)$currentUser['id'] : null);
+$accent    = sanitize_css_color($ap['accent_color']);
+$bgMode    = $ap['bg_mode'];
+$bgImage   = trim($ap['bg_image']);
+$bgColor   = sanitize_css_color($ap['bg_color'], '#f3f5f9');
+$gradA     = sanitize_css_color($ap['gradient_a'], '#60a5fa');
+$gradB     = sanitize_css_color($ap['gradient_b'], '#8b5cf6');
+$bgOverlay = max(0.0, min(0.85, (float)$ap['bg_overlay']));
+$bgFixed   = $ap['bg_fixed'] === '1';
+$cardAlpha = max(0.35, min(1.0, (float)$ap['card_opacity']));
 
 // 背景图仅允许 http(s) 或本地上传目录，避免非法协议 / CSS 注入
 if ($bgImage !== '' && !preg_match('#^https?://#i', $bgImage) && substr($bgImage, 0, 16) !== '/assets/uploads/') {
@@ -68,6 +69,7 @@ body.bg-image { background-attachment: <?= $bgFixed ? 'fixed' : 'scroll' ?>; }
     <nav class="user-nav">
       <?php if ($currentUser): ?>
         <span class="user-name"><?= e($currentUser['username']) ?><?= is_admin() ? ' · 管理员' : '' ?></span>
+        <a href="account.php">个人中心</a>
         <?php if (is_admin()): ?><a href="admin/index.php">后台管理</a><?php endif; ?>
         <a href="logout.php">退出</a>
       <?php else: ?>

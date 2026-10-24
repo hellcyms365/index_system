@@ -31,6 +31,15 @@ services:
       DB_NAME: net_portal
       DB_USER: portal
       DB_PASS: portalpass
+      # 注册邮箱验证码发信（默认 mail() 模式；推荐改 SMTP，如 MAIL_MODE=smtp MAIL_HOST=smtp.qq.com ...）
+      MAIL_MODE: ${MAIL_MODE:-mail}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-465}
+      MAIL_SECURE: ${MAIL_SECURE:-ssl}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASS: ${MAIL_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-上网入口}
     ports:
       - "8080:80"
 

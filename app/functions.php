@@ -269,6 +269,67 @@ function ensure_links_pinned(): void
 }
 
 /**
+ * 确保 links 表含 user_id 列（老库自动升级）。
+ * NULL = 管理员维护的全局链接；非 NULL = 该用户的个人链接。
+ */
+function ensure_links_user_id(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    try {
+        $db  = db();
+        $row = $db->query(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'links' AND COLUMN_NAME = 'user_id'"
+        )->fetch();
+        if ($row === false) {
+            $db->exec('ALTER TABLE `links` ADD COLUMN `user_id` INT UNSIGNED NULL DEFAULT NULL AFTER `id`, ADD KEY `idx_user` (`user_id`)');
+        }
+    } catch (Throwable $e) {
+        // 静默：无 DDL 权限时页面不阻塞
+    }
+}
+
+/**
+ * 确保 users 表含邮箱 / 手机号 / 姓名 / 邮箱验证列（老库自动升级）。
+ */
+function ensure_users_contact(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    try {
+        $db   = db();
+        $cols = [];
+        foreach ($db->query(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'"
+        ) as $row) {
+            $cols[$row['COLUMN_NAME']] = true;
+        }
+        if (!isset($cols['email'])) {
+            $db->exec("ALTER TABLE `users` ADD COLUMN `email` VARCHAR(191) NULL DEFAULT NULL AFTER `username`, ADD UNIQUE KEY `uk_users_email` (`email`)");
+        }
+        if (!isset($cols['email_verified'])) {
+            $db->exec("ALTER TABLE `users` ADD COLUMN `email_verified` TINYINT NOT NULL DEFAULT 0 AFTER `email`");
+        }
+        if (!isset($cols['phone'])) {
+            $db->exec("ALTER TABLE `users` ADD COLUMN `phone` VARCHAR(50) NOT NULL DEFAULT '' AFTER `email_verified`");
+        }
+        if (!isset($cols['real_name'])) {
+            $db->exec("ALTER TABLE `users` ADD COLUMN `real_name` VARCHAR(50) NOT NULL DEFAULT '' AFTER `phone`");
+        }
+    } catch (Throwable $e) {
+        // 静默：无 DDL 权限时页面不阻塞
+    }
+}
+
+/**
  * 确保 click_daily 按天聚合表存在（老库自动升级）。
  * 首次创建时从 click_logs 一次性回填历史数据（INSERT IGNORE，重复执行不会累加）。
  */

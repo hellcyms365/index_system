@@ -550,6 +550,25 @@ select.input { appearance: auto; }
 
 .checkbox-group { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
 
+/* ---------------- 个人中心 ---------------- */
+.tab-nav { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+.tab-nav a {
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 14px;
+  text-decoration: none;
+  transition: all .15s;
+}
+.tab-nav a:hover { color: var(--primary); border-color: var(--primary); }
+.tab-nav a.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.input-group { display: flex; gap: 8px; }
+.input-group .input { flex: 1; }
+.email-static { padding: 9px 14px; border: 1px dashed var(--border); border-radius: 8px; background: #f8fafc; font-size: 14px; color: var(--text); }
+.form-hint-ok { color: #059669; }
+
 .engine-jump { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
 .engine-jump a { color: var(--primary); text-decoration: none; margin: 0 4px; }
 .engine-jump a:hover { text-decoration: underline; }
