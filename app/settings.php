@@ -23,6 +23,15 @@ const DEFAULT_SETTINGS = [
     'bg_fixed'     => '1',                // 背景图是否固定（视差）
     'card_opacity' => '1',                // 链接卡片不透明度 0.35-1（背景图模式下更通透）
     'footer_text'  => '',                 // 页脚文字（留空用默认）
+    // 邮件发信（留空 = 使用 app/config.php / 环境变量；后台「邮箱管理」页可覆盖）
+    'mail_mode'    => '',
+    'mail_host'    => '',
+    'mail_port'    => '',
+    'mail_secure'  => '',
+    'mail_user'    => '',
+    'mail_pass'    => '',
+    'mail_from'    => '',
+    'mail_from_name' => '',
 ];
 
 /** 确保 settings 表存在并写入默认值（老库升级用） */

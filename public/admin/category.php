@@ -22,19 +22,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ->execute([$name, $order]);
             flash_set('success', '分类「' . $name . '」已添加。');
         } elseif ($action === 'edit' && $id > 0) {
-            $db->prepare('UPDATE categories SET name = ?, sort_order = ? WHERE id = ?')
+            $db->prepare('UPDATE categories SET name = ?, sort_order = ? WHERE id = ? AND user_id IS NULL')
                 ->execute([$name, $order, $id]);
             flash_set('success', '分类已更新。');
         } elseif ($action === 'toggle' && $id > 0) {
-            $db->prepare('UPDATE categories SET status = 1 - status WHERE id = ?')->execute([$id]);
+            $db->prepare('UPDATE categories SET status = 1 - status WHERE id = ? AND user_id IS NULL')->execute([$id]);
             flash_set('success', '分类状态已切换。');
         } elseif ($action === 'delete' && $id > 0) {
+            // 该分类下有任何链接（含个人链接）都禁止删除，避免级联删除他人个人链接
             $count = $db->prepare('SELECT COUNT(*) FROM links WHERE category_id = ?');
             $count->execute([$id]);
             if ((int)$count->fetchColumn() > 0) {
-                flash_set('error', '该分类下还有链接，请先移动或删除这些链接。');
+                flash_set('error', '该分类下还有链接（含用户个人链接），请先移动或删除这些链接。');
             } else {
-                $db->prepare('DELETE FROM categories WHERE id = ?')->execute([$id]);
+                $db->prepare('DELETE FROM categories WHERE id = ? AND user_id IS NULL')->execute([$id]);
                 flash_set('success', '分类已删除。');
             }
         } else {
@@ -45,8 +46,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $categories = $db->query(
-    'SELECT c.*, (SELECT COUNT(*) FROM links l WHERE l.category_id = c.id) AS link_count
+    'SELECT c.*, (SELECT COUNT(*) FROM links l WHERE l.category_id = c.id AND l.user_id IS NULL) AS link_count
      FROM categories c
+     WHERE c.user_id IS NULL
      ORDER BY c.sort_order ASC, c.id ASC'
 )->fetchAll();
 

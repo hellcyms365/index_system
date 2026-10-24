@@ -163,6 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $desc    = trim((string)($_POST['description'] ?? ''));
         $icon    = trim((string)($_POST['icon'] ?? ''));
         $catId   = (int)($_POST['category_id'] ?? 0);
+        $newCat  = trim((string)($_POST['new_category'] ?? ''));
         $sort    = (int)($_POST['sort_order'] ?? 0);
         $pinned  = isset($_POST['is_pinned']) ? 1 : 0;
 
@@ -172,15 +173,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash_set('error', '描述不超过 500 字。');
         } elseif (str_length($icon) > 255) {
             flash_set('error', '图标内容过长。');
+        } elseif ($newCat !== '' && str_length($newCat) > 100) {
+            flash_set('error', '新建分类名称不超过 100 字。');
         } else {
             $url = normalize_url($url);
             if ($url === '') {
                 flash_set('error', '网址无效，仅支持 http/https 链接。');
             } else {
-                $catOk = $db->prepare('SELECT id FROM categories WHERE id = ? AND status = 1 LIMIT 1');
-                $catOk->execute([$catId]);
+                // 填写了「新建我的分类」：同名复用，否则创建个人分类
+                if ($newCat !== '') {
+                    $stmt = $db->prepare('SELECT id FROM categories WHERE name = ? AND user_id = ? LIMIT 1');
+                    $stmt->execute([$newCat, $uid]);
+                    $dup = $stmt->fetch();
+                    if ($dup !== false) {
+                        $catId = (int)$dup['id'];
+                    } else {
+                        $db->prepare('INSERT INTO categories (user_id, name, sort_order, status) VALUES (?, ?, 0, 1)')
+                            ->execute([$uid, $newCat]);
+                        $catId = (int)$db->lastInsertId();
+                    }
+                }
+                // 分类归属校验：仅允许本人个人分类或全局分类
+                $catOk = $db->prepare('SELECT id FROM categories WHERE id = ? AND status = 1 AND (user_id IS NULL OR user_id = ?) LIMIT 1');
+                $catOk->execute([$catId, $uid]);
                 if ($catOk->fetch() === false) {
-                    flash_set('error', '请选择有效的分类。');
+                    flash_set('error', '请选择有效的分类（可选你的个人分类或站点分类）。');
                 } elseif ($action === 'link_add') {
                     $db->prepare('INSERT INTO links (category_id, user_id, title, url, description, icon, sort_order, is_pinned, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)')
                         ->execute([$catId, $uid, $title, $url, $desc, $icon, $sort, $pinned]);
@@ -191,6 +208,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     flash_set('success', '链接已更新。');
                 }
             }
+        }
+        redirect('account.php?tab=links');
+    }
+
+    // ---------- 我的分类 ----------
+    if ($action === 'cat_add') {
+        $name  = trim((string)($_POST['name'] ?? ''));
+        $order = (int)($_POST['sort_order'] ?? 0);
+        if ($name === '' || str_length($name) > 100) {
+            flash_set('error', '分类名称不能为空且不超过 100 字。');
+        } else {
+            $stmt = $db->prepare('SELECT id FROM categories WHERE name = ? AND user_id = ? LIMIT 1');
+            $stmt->execute([$name, $uid]);
+            if ($stmt->fetch() !== false) {
+                flash_set('error', '你已经有同名分类了。');
+            } else {
+                $db->prepare('INSERT INTO categories (user_id, name, sort_order, status) VALUES (?, ?, ?, 1)')
+                    ->execute([$uid, $name, $order]);
+                flash_set('success', '分类「' . $name . '」已添加（仅自己可见）。');
+            }
+        }
+        redirect('account.php?tab=links');
+    }
+
+    if ($action === 'cat_edit') {
+        $id    = (int)($_POST['id'] ?? 0);
+        $name  = trim((string)($_POST['name'] ?? ''));
+        $order = (int)($_POST['sort_order'] ?? 0);
+        if ($id <= 0 || $name === '' || str_length($name) > 100) {
+            flash_set('error', '分类名称不能为空且不超过 100 字。');
+        } else {
+            $stmt = $db->prepare('SELECT id FROM categories WHERE name = ? AND user_id = ? AND id <> ? LIMIT 1');
+            $stmt->execute([$name, $uid, $id]);
+            if ($stmt->fetch() !== false) {
+                flash_set('error', '你已经有同名分类了。');
+            } else {
+                $db->prepare('UPDATE categories SET name = ?, sort_order = ? WHERE id = ? AND user_id = ?')
+                    ->execute([$name, $order, $id, $uid]);
+                flash_set('success', '分类已更新。');
+            }
+        }
+        redirect('account.php?tab=links');
+    }
+
+    if ($action === 'cat_delete') {
+        $id = (int)($_POST['id'] ?? 0);
+        $stmt = $db->prepare('SELECT COUNT(*) FROM links WHERE category_id = ? AND user_id = ?');
+        $stmt->execute([$id, $uid]);
+        if ((int)$stmt->fetchColumn() > 0) {
+            flash_set('error', '该分类下还有你的链接，请先移动或删除这些链接。');
+        } else {
+            $db->prepare('DELETE FROM categories WHERE id = ? AND user_id = ?')->execute([$id, $uid]);
+            flash_set('success', '分类已删除。');
         }
         redirect('account.php?tab=links');
     }
@@ -281,6 +351,18 @@ if ($tab === 'links') {
     $myLinks = $myLinks->fetchAll();
 }
 $activeCats = $db->query('SELECT id, name FROM categories WHERE status = 1 ORDER BY sort_order ASC, id ASC')->fetchAll();
+$myCats     = [];
+if ($tab === 'links') {
+    // 我的个人分类（含各分类下的个人链接数）
+    $myCats = $db->prepare(
+        'SELECT c.*, (SELECT COUNT(*) FROM links l WHERE l.category_id = c.id AND l.user_id = ?) AS link_count
+         FROM categories c
+         WHERE c.user_id = ?
+         ORDER BY c.sort_order ASC, c.id ASC'
+    );
+    $myCats->execute([$uid, $uid]);
+    $myCats = $myCats->fetchAll();
+}
 
 $pageTitle = '个人中心';
 include __DIR__ . '/partials/header.php';
@@ -481,13 +563,31 @@ include __DIR__ . '/partials/header.php';
           <div class="form-col">
             <label for="lk_cat">分类</label>
             <select class="input" id="lk_cat" name="category_id" required>
-              <?php foreach ($activeCats as $cat): ?>
-                <option value="<?= (int)$cat['id'] ?>" <?= (int)($editLink['category_id'] ?? 0) === (int)$cat['id'] ? 'selected' : '' ?>>
-                  <?= e($cat['name']) ?>
-                </option>
-              <?php endforeach; ?>
+              <?php if ($myCats): ?>
+                <optgroup label="我的分类（仅自己可见）">
+                  <?php foreach ($myCats as $cat): ?>
+                    <option value="<?= (int)$cat['id'] ?>" <?= (int)($editLink['category_id'] ?? 0) === (int)$cat['id'] ? 'selected' : '' ?>>
+                      <?= e($cat['name']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <optgroup label="站点分类">
+                <?php foreach ($activeCats as $cat): ?>
+                  <option value="<?= (int)$cat['id'] ?>" <?= (int)($editLink['category_id'] ?? 0) === (int)$cat['id'] ? 'selected' : '' ?>>
+                    <?= e($cat['name']) ?>
+                  </option>
+                <?php endforeach; ?>
+              </optgroup>
             </select>
           </div>
+          <div class="form-col">
+            <label for="lk_new_cat">或新建我的分类</label>
+            <input class="input" type="text" id="lk_new_cat" name="new_category" maxlength="100"
+                   placeholder="填写分类名，保存时自动创建">
+          </div>
+        </div>
+        <div class="form-row">
           <div class="form-col">
             <label for="lk_icon">图标</label>
             <input class="input" type="text" id="lk_icon" name="icon" maxlength="255"
@@ -515,6 +615,52 @@ include __DIR__ . '/partials/header.php';
         </div>
       </form>
       <p class="form-hint">你的链接只显示在你自己登录后的首页与站内搜索里，其他用户看不到。</p>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel-title">我的分类（共 <?= count($myCats) ?> 个）</h2>
+      <form class="form-inline" method="post" action="account.php?tab=links">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="cat_add">
+        <input class="input" type="text" name="name" placeholder="新分类名称（仅自己可见）" required maxlength="100">
+        <input class="input input-sm" type="number" name="sort_order" value="0" min="0" placeholder="排序">
+        <button class="btn btn-primary btn-sm" type="submit">添加分类</button>
+      </form>
+      <?php if (!$myCats): ?>
+        <p class="empty-tip">还没有个人分类。可以在上面添加，或在上方添加链接时直接填写「新建我的分类」。</p>
+      <?php else: ?>
+        <div class="table-scroll">
+          <table class="table">
+            <thead><tr><th>名称</th><th>链接数</th><th>排序</th><th>操作</th></tr></thead>
+            <tbody>
+            <?php foreach ($myCats as $cat): ?>
+              <tr>
+                <td>
+                  <form class="form-inline" method="post" action="account.php?tab=links">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="cat_edit">
+                    <input type="hidden" name="id" value="<?= (int)$cat['id'] ?>">
+                    <input class="input input-sm" type="text" name="name" value="<?= e($cat['name']) ?>" required maxlength="100">
+                    <input class="input input-sm input-num" type="number" name="sort_order" value="<?= (int)$cat['sort_order'] ?>" min="0">
+                    <button class="btn btn-outline btn-sm" type="submit">保存</button>
+                  </form>
+                </td>
+                <td class="cell-muted"><?= (int)$cat['link_count'] ?></td>
+                <td class="cell-muted"><?= (int)$cat['sort_order'] ?></td>
+                <td class="cell-actions">
+                  <form class="form-inline" method="post" action="account.php?tab=links" data-confirm="确定删除分类「<?= e($cat['name']) ?>」？">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="cat_delete">
+                    <input type="hidden" name="id" value="<?= (int)$cat['id'] ?>">
+                    <button class="btn btn-danger btn-sm" type="submit" <?= (int)$cat['link_count'] > 0 ? 'disabled title="该分类下还有链接，请先移动或删除链接"' : '' ?>>删除</button>
+                  </form>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      <?php endif; ?>
     </div>
 
     <div class="panel">

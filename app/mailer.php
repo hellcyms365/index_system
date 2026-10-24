@@ -7,19 +7,27 @@
  *   - mode = mail：降级使用 PHP 的 mail() 函数（依赖服务器 MTA，宝塔默认可用性低，推荐 SMTP）
  */
 
-/** 读取邮件配置 */
+/**
+ * 读取邮件配置。
+ * 优先级：后台「邮箱管理」页保存的数据库设置（settings 表） > app/config.php / 环境变量。
+ * 数据库项留空表示未设置，自动回退到文件配置，因此后台不配置也能用文件默认值。
+ */
 function mail_config(): array
 {
-    $cfg = config('mail', []);
+    $cfg  = config('mail', []);
+    $dbOf = static function (string $key, string $fallback): string {
+        $v = setting('mail_' . $key);
+        return $v !== '' ? $v : $fallback;
+    };
     return [
-        'mode'      => (string)($cfg['mode'] ?? 'mail'),          // mail | smtp
-        'host'      => (string)($cfg['host'] ?? ''),
-        'port'      => (int)($cfg['port'] ?? 465),
-        'secure'    => (string)($cfg['secure'] ?? 'ssl'),          // ssl | tls | none
-        'user'      => (string)($cfg['user'] ?? ''),
-        'pass'      => (string)($cfg['pass'] ?? ''),
-        'from'      => (string)($cfg['from'] ?? ''),
-        'from_name' => (string)($cfg['from_name'] ?? '上网入口'),
+        'mode'      => $dbOf('mode', (string)($cfg['mode'] ?? 'mail')),     // mail | smtp
+        'host'      => $dbOf('host', (string)($cfg['host'] ?? '')),
+        'port'      => (int)$dbOf('port', (string)($cfg['port'] ?? 465)),
+        'secure'    => $dbOf('secure', (string)($cfg['secure'] ?? 'ssl')),  // ssl | tls | none
+        'user'      => $dbOf('user', (string)($cfg['user'] ?? '')),
+        'pass'      => $dbOf('pass', (string)($cfg['pass'] ?? '')),
+        'from'      => $dbOf('from', (string)($cfg['from'] ?? '')),
+        'from_name' => $dbOf('from_name', (string)($cfg['from_name'] ?? '上网入口')),
     ];
 }
 

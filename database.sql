@@ -33,10 +33,12 @@ CREATE TABLE IF NOT EXISTS `users` (
 -- ---------------- 分类表 ----------------
 CREATE TABLE IF NOT EXISTS `categories` (
   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `user_id` INT UNSIGNED NULL DEFAULT NULL COMMENT 'NULL=全局分类（管理员维护）；非NULL=该用户的个人分类',
   `name` VARCHAR(100) NOT NULL,
   `sort_order` INT NOT NULL DEFAULT 0,
   `status` TINYINT NOT NULL DEFAULT 1 COMMENT '1=启用 0=停用',
-  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY `idx_user` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------- 链接表 ----------------
@@ -99,7 +101,15 @@ INSERT IGNORE INTO `settings` (`skey`, `svalue`) VALUES
 ('bg_overlay', '0.35'),
 ('bg_fixed', '1'),
 ('card_opacity', '1'),
-('footer_text', '');
+('footer_text', ''),
+('mail_mode', ''),
+('mail_host', ''),
+('mail_port', ''),
+('mail_secure', ''),
+('mail_user', ''),
+('mail_pass', ''),
+('mail_from', ''),
+('mail_from_name', '');
 
 -- ---------------- 用户个人外观设置表（个人中心「我的外观」） ----------------
 CREATE TABLE IF NOT EXISTS `user_settings` (

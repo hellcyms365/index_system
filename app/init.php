@@ -31,6 +31,7 @@ require_once __DIR__ . '/mailer.php';
 try {
     ensure_users_contact();
     ensure_links_user_id();
+    ensure_categories_user_id();
     ensure_user_settings_table();
 } catch (Throwable $e) {
     // 数据库不可用时（如 install 前误访问）不阻塞页面流程

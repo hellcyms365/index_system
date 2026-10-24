@@ -17,6 +17,7 @@ $navItems = [
     'stats'    => ['访问统计', 'stats.php'],
     'settings' => ['外观设置', 'settings.php'],
     'uploads'  => ['文件管理', 'uploads.php'],
+    'emails'   => ['邮箱管理', 'emails.php'],
     'user'     => ['用户管理', 'user.php'],
 ];
 ?>

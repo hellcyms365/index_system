@@ -5,13 +5,17 @@
  */
 require_once __DIR__ . '/../app/init.php';
 
-// 拉取启用的分类
-$categories = db()->query(
-    'SELECT id, name FROM categories WHERE status = 1 ORDER BY sort_order ASC, id ASC'
-)->fetchAll();
+// 拉取启用的分类（全局分类 + 当前登录用户的个人分类）
+$meUid      = is_logged_in() ? (int)current_user()['id'] : 0;
+$catStmt    = db()->prepare(
+    'SELECT id, name FROM categories
+     WHERE status = 1 AND (user_id IS NULL OR user_id = ?)
+     ORDER BY sort_order ASC, id ASC'
+);
+$catStmt->execute([$meUid]);
+$categories = $catStmt->fetchAll();
 
 // 一次查询拉取所有启用的链接（全局链接 + 当前登录用户的个人链接），按分类分组
-$meUid = is_logged_in() ? (int)current_user()['id'] : 0;
 $linksByCategory = [];
 if ($categories) {
     $placeholders = implode(',', array_fill(0, count($categories), '?'));

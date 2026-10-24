@@ -97,7 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (str_length($icon) > 255) {
             $errors[] = '图标内容不超过 255 字。';
         }
-        $catCheck = $db->prepare('SELECT id FROM categories WHERE id = ?');
+        $catCheck = $db->prepare('SELECT id FROM categories WHERE id = ? AND user_id IS NULL');
         $catCheck->execute([$categoryId]);
         if ($catCheck->fetch() === false) {
             $errors[] = '请选择有效的分类。';
@@ -193,6 +193,86 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         redirect('link.php');
+    } elseif ($action === 'fetch_all_icons') {
+        // ---- 一键批量抓取全部图标：分批处理（默认每批 15 个），完成后可继续 ----
+        $offset = max(0, (int)($_POST['offset'] ?? 0));
+        $force  = isset($_POST['force_all']) ? 1 : 0;
+        // 每批数量：能延长脚本时限时 15 个；若 PHP 禁止 set_time_limit（可能超时中断），降为 5 个确保一批内跑完
+        $batch  = @set_time_limit(180) ? 15 : 5;
+        if ((int)ini_get('max_execution_time') > 0 && (int)ini_get('max_execution_time') < 120) {
+            $batch = 5;
+        }
+
+        $extra  = $force ? '' : " AND (icon = '' OR icon IS NULL)";
+        $total  = (int)$db->query('SELECT COUNT(*) FROM links WHERE user_id IS NULL' . $extra)->fetchColumn();
+        if ($total <= 0) {
+            flash_set('success', $force ? '没有可处理的链接（全部已有图标或均不可解析）。' : '所有链接都已设置图标，无需抓取。');
+            redirect('link.php');
+        }
+        $rows = $db->query(
+            'SELECT id, title, url, icon FROM links WHERE user_id IS NULL' . $extra
+            . ' ORDER BY id ASC LIMIT ' . (int)$batch . ' OFFSET ' . (int)$offset
+        )->fetchAll();
+        if (!$rows) {
+            flash_set('error', '没有待处理的链接。');
+            redirect('link.php');
+        }
+
+        $ok        = 0;
+        $fail      = 0;
+        $skip      = 0;
+        $uploadDir = __DIR__ . '/../assets/uploads/';
+        if (!is_dir($uploadDir)) {
+            @mkdir($uploadDir, 0755, true);
+        }
+        foreach ($rows as $row) {
+            $parsed = parse_url((string)$row['url']);
+            $scheme = strtolower((string)($parsed['scheme'] ?? ''));
+            $host   = strtolower((string)($parsed['host'] ?? ''));
+            if (!in_array($scheme, ['http', 'https'], true) || $host === ''
+                || strtolower($host) === 'localhost'
+                || preg_match('/^\d+(\.\d+){3}$/', $host)) {
+                $skip++;
+                continue;
+            }
+            $oldIcon = (string)$row['icon'];
+            // 强制模式：不覆盖本站上传的图标
+            if ($force && substr($oldIcon, 0, 16) === '/assets/uploads/') {
+                $skip++;
+                continue;
+            }
+            if (!is_dir($uploadDir) || !is_writable($uploadDir)) {
+                $fail++;
+                continue;
+            }
+            $fetched = fetch_favicon($scheme, $host);
+            if ($fetched[0] === null) {
+                $fail++;
+                continue;
+            }
+            $iconName = 'icon_' . preg_replace('/[^a-z0-9]/i', '', $host) . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(3)) . '.' . $fetched[1];
+            if (file_put_contents($uploadDir . $iconName, $fetched[0]) === false) {
+                $fail++;
+                continue;
+            }
+            $newIcon = '/assets/uploads/' . $iconName;
+            $db->prepare('UPDATE links SET icon = ? WHERE id = ? AND user_id IS NULL')->execute([$newIcon, (int)$row['id']]);
+            if ($oldIcon !== $newIcon && substr($oldIcon, 0, 16) === '/assets/uploads/') {
+                $oldFile = __DIR__ . '/..' . $oldIcon;
+                if (is_file($oldFile)) {
+                    @unlink($oldFile);
+                }
+            }
+            $ok++;
+        }
+
+        $done = $offset + count($rows);
+        if ($done >= $total) {
+            flash_set('success', "图标批量抓取完成：成功 {$ok} 个，失败 {$fail} 个，跳过 {$skip} 个。");
+            redirect('link.php');
+        }
+        flash_set('success', "本批已抓取 {$done}/{$total}（成功 {$ok} 失败 {$fail} 跳过 {$skip}），点「继续抓取剩余」接着处理。");
+        redirect('link.php?fetch_icons=1&offset=' . $done . ($force ? '&force=1' : ''));
     } elseif ($action === 'import') {
         // ---- CSV 批量导入 ----
         $file = $_FILES['csv_file'] ?? null;
@@ -214,7 +294,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $fh = fopen($tmp, 'r');
 
             $catMap = [];
-            foreach ($db->query('SELECT id, name FROM categories') as $c) {
+            foreach ($db->query('SELECT id, name FROM categories WHERE user_id IS NULL') as $c) {
                 $catMap[strtolower(trim($c['name']))] = (int)$c['id'];
             }
             $insLink = $db->prepare(
@@ -347,7 +427,7 @@ $listStmt->execute($params);
 $links = $listStmt->fetchAll();
 
 $categories = $db->query(
-    'SELECT id, name, status FROM categories ORDER BY sort_order ASC, id ASC'
+    'SELECT id, name, status FROM categories WHERE user_id IS NULL ORDER BY sort_order ASC, id ASC'
 )->fetchAll();
 
 // 生成分页链接
@@ -461,6 +541,51 @@ include __DIR__ . '/partials/header.php';
     CSV 列顺序：<code>分类,标题,网址,描述,图标,排序,状态,置顶</code>（首行为表头可省略）。
     分类不存在会自动创建；支持 Excel 导出的 UTF-8 / GBK 编码；状态 1/启用=显示，0/停用=隐藏；置顶 1=置顶。
   </p>
+</div>
+
+<div class="panel">
+  <h2 class="panel-title">图标批量抓取</h2>
+  <?php
+  $emptyCount = (int)$db->query("SELECT COUNT(*) FROM links WHERE user_id IS NULL AND (icon = '' OR icon IS NULL)")->fetchColumn();
+  $allCount   = (int)$db->query('SELECT COUNT(*) FROM links WHERE user_id IS NULL')->fetchColumn();
+  $fetchOn    = isset($_GET['fetch_icons']);
+  $fetchOffset = $fetchOn ? max(0, (int)($_GET['offset'] ?? 0)) : 0;
+  $fetchForce  = $fetchOn && (($_GET['force'] ?? '') === '1');
+  ?>
+  <p class="form-hint">
+    共有 <strong><?= $allCount ?></strong> 个全局链接，其中 <strong><?= $emptyCount ?></strong> 个还没有图标。
+    批量抓取会解析各网站 favicon 并保存到 /assets/uploads/；无法解析 / 抓取失败的链接自动跳过，不中断流程。
+    <?php if ($emptyCount <= 0 && $fetchOffset <= 0): ?>
+      <span class="cell-muted">（当前所有链接都已设置图标——可直接勾选「全部重抓」刷新图标，或先新增链接）</span>
+    <?php endif; ?>
+  </p>
+  <form class="form-inline" method="post" action="link.php" id="fetch_icons_form">
+    <?= csrf_field() ?>
+    <input type="hidden" name="action" value="fetch_all_icons">
+    <input type="hidden" name="offset" value="<?= $fetchOffset ?>">
+    <label class="checkbox-label">
+      <input type="checkbox" name="force_all" value="1" <?= $fetchForce ? 'checked' : '' ?>>
+      全部重抓（覆盖已有图标，本站上传的不覆盖）
+    </label>
+    <button class="btn btn-primary btn-sm" type="submit">
+      <?= $fetchOffset > 0 ? '继续抓取剩余' : '一键抓取全部图标' ?>
+    </button>
+    <?php if ($fetchOffset > 0): ?><a class="btn btn-ghost btn-sm" href="link.php">停止</a><?php endif; ?>
+  </form>
+  <p class="form-hint">每批最多处理 15 个，避免单次请求超时；处理完一批自动提示进度，点「继续抓取剩余」接着抓（勾选状态会保留）。抓取期间请勿关闭页面。</p>
+  <script>
+  (function () {
+    var form = document.getElementById('fetch_icons_form');
+    if (!form) return;
+    form.addEventListener('submit', function () {
+      var btn = form.querySelector('button[type="submit"]');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '正在抓取，请稍候…';
+      }
+    });
+  })();
+  </script>
 </div>
 
 <div class="panel">

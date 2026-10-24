@@ -294,6 +294,31 @@ function ensure_links_user_id(): void
 }
 
 /**
+ * 确保 categories 表含 user_id 列（老库自动升级）。
+ * NULL = 管理员维护的全局分类；非 NULL = 该用户的个人分类。
+ */
+function ensure_categories_user_id(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    try {
+        $db  = db();
+        $row = $db->query(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'categories' AND COLUMN_NAME = 'user_id'"
+        )->fetch();
+        if ($row === false) {
+            $db->exec('ALTER TABLE `categories` ADD COLUMN `user_id` INT UNSIGNED NULL DEFAULT NULL AFTER `id`, ADD KEY `idx_user` (`user_id`)');
+        }
+    } catch (Throwable $e) {
+        // 静默：无 DDL 权限时页面不阻塞
+    }
+}
+
+/**
  * 确保 users 表含邮箱 / 手机号 / 姓名 / 邮箱验证列（老库自动升级）。
  */
 function ensure_users_contact(): void
